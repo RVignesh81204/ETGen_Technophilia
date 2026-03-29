@@ -1,97 +1,57 @@
 
 
-# ET Story OS — AI-Native Business News Intelligence Platform
+# Fix 4 Dynamic Issues in ET Story OS
 
-## Overview
-A premium, futuristic business news intelligence platform with two main pages: a cinematic intro landing page and an AI-powered news homepage. Users browse hot stories, select one, and enter an immersive AI briefing experience with role-based insights, interactive graphs, audio narration, video generation, and live Q&A.
+## Problem Summary
+1. Role switching doesn't change briefing content — only a static paragraph changes
+2. All headlines open the same Iran-Israel briefing data
+3. Video tab is just text slides with no visuals
+4. Chat/Ask tab gives generic responses, suggested questions only fill input, no story recommendations
 
-## Page 1: Introductory Landing Page
-- Dark, editorial hero section with large serif typography and subtle grain/gradient textures
-- Animated headline: "The Future of Business Intelligence"
-- Brand statement and 3 feature highlights with icons
-- Featured headline ticker strip
-- "Enter Story OS" CTA button with glow animation
-- Smooth scroll-based fade-in animations throughout
-- Premium feel inspired by ET Prime / Bloomberg / The Information
+## Solution
 
-## Page 2: Homepage — Hot News Feed
-- Top search bar with glass-morphism styling (search by company, sector, keyword, topic)
-- Grid of hot news story cards, each with:
-  - Bold headline, 1-2 line summary, category tag, timestamp
-  - Right-aligned thumbnail image
-  - Hover lift/glow animation
-- Featured large card for the Iran-Israel-USA geopolitical demo story
-- Section headers: "Breaking Now", "Trending", "Markets"
-- 8-10 demo stories across geopolitics, tech, markets, startups
+### 1. Dynamic Briefing Data for All Stories
+**File: `src/data/stories.ts`**
+- Add a `BriefingData` object for each of the 8 remaining stories (NVIDIA, RBI, OpenAI, Tata, Saudi IPO, EU AI Act, Zeptomail, China Trade)
+- Export a `storyBriefings: Record<string, BriefingData>` map keyed by story ID
+- Each briefing includes unique keyFacts, entities, timeline, graph nodes/edges, audioScript, etc.
 
-## Page 3: Story Intelligence Mode (activated on card click)
-Full-screen AI briefing environment with tabbed/sectioned layout:
+### 2. Role-Based Dynamic Reframing
+**File: `src/data/stories.ts`**
+- Add a `roleFramings: Record<string, Record<string, string>>` map — per story ID, per role
+- Each story gets 6 unique role perspectives (general, investor, founder, student, journalist, analyst)
+- The role framing text adapts to the specific story content
 
-### AI Story Briefing Panel
-- Structured output: Summary, Key Facts, Key Entities, Impact Analysis, Timeline, Contrarian View, Future Outlook, What to Watch Next
-- Visually rich cards/sections with icons and color coding
-- Uses Lovable AI (Gemini) via edge function to generate structured briefings
+**File: `src/pages/StoryPage.tsx`**
+- Replace `demoBriefing` with `storyBriefings[id]` lookup
+- Replace `roleFraming[role]` with `roleFramings[id][role]` lookup
+- When role changes, also update: summary framing, impact analysis emphasis, suggested questions
+- Audio script and graph remain story-specific (already driven by briefing object)
 
-### Role-Based Intelligence
-- Role selector bar: Investor, Founder, Student, Journalist, Analyst, General Reader
-- Selecting a role re-prompts the AI to reframe the briefing for that persona
-- Visual indicator of active role with smooth transition
+### 3. Video Tab with Background Images
+**File: `src/components/story/VideoPlayer.tsx`**
+- Add relevant Unsplash background images per slide (mapped from story imageUrl + category-specific images)
+- Each slide gets a fullscreen background image with dark overlay + text on top
+- Add a cinematic Ken Burns (slow zoom/pan) effect on the background image using Framer Motion
+- Add a progress bar at bottom showing elapsed time
+- Add story-specific image passed as prop from StoryPage
 
-### Interactive Entity Graph
-- Built with a force-directed graph library (e.g., react-force-graph or custom SVG)
-- Nodes: companies, people, countries, sectors
-- Edges: affects, responds to, influences, competes with
-- Click a node to see details in a side panel
-- Animated entrance with spring physics
+### 4. Interactive Chat/Ask System
+**File: `src/pages/StoryPage.tsx`**
+- Fix suggested questions: clicking them should auto-send (not just fill input)
+- Build a smarter response generator that uses the actual briefing data + role context to craft answers
+- Different questions get different structured answers pulling from keyFacts, timeline, entities, contrarianView, etc.
+- Add "Related Stories" recommendation section below the chat showing 3 other story cards from `demoStories` (excluding current), clickable to navigate to those stories
+- Recommendations filtered by related category/section
 
-### Ask the Story (Q&A Chat)
-- Contextual chat panel anchored to the current story + role
-- Suggested quick questions as chips
-- Streaming AI responses via Lovable AI edge function
-- Markdown-rendered answers
+## Technical Approach
+- All data is client-side in `stories.ts` — no edge functions needed for this change
+- StoryPage reads `storyBriefings[id]` and `roleFramings[id][role]` instead of hardcoded constants
+- VideoPlayer receives `imageUrl` prop for background imagery
+- Chat uses pattern matching on user questions against briefing fields to generate contextual responses
 
-### Audio Briefing
-- Edge function generates an audio script, then uses ElevenLabs TTS to produce narration
-- Play/pause controls, progress bar, waveform visualization
-- Professional voice (e.g., Brian or Daniel from ElevenLabs)
-
-### Video Summary
-- Simulated "generating video" workflow with cinematic progress animation
-- Displays a styled text-overlay video-like presentation (animated slides showing key facts, timeline, entities)
-- Built with Framer Motion animated sequence to simulate a 30-second news reel within the browser
-
-### Simulate New Update
-- Button that triggers AI to generate a new development
-- Appends to timeline, updates sentiment, refreshes graph and briefing
-- Toast notification: "Breaking: Story has evolved"
-
-## Tech Stack
-- React + TypeScript + Tailwind CSS + shadcn/ui
-- Framer Motion for all animations
-- Recharts or react-force-graph for the entity graph
-- Lovable Cloud + Supabase edge functions for AI (Lovable AI Gateway)
-- ElevenLabs TTS via edge function for audio narration
-- React Router for page navigation
-- react-markdown for AI response rendering
-
-## Design System
-- Dark theme with deep navy/charcoal background (#0a0e1a)
-- Accent: warm gold (#d4a853) for premium feel
-- Secondary accent: electric blue (#3b82f6) for interactive elements
-- Typography: Inter for body, Playfair Display for editorial headlines
-- Glass-morphism cards with subtle borders
-- Smooth micro-animations on every interaction
-
-## AI Architecture
-- Edge function receives story topic + role, calls Lovable AI with structured tool-calling to return JSON briefing
-- Separate edge function for Q&A streaming
-- Separate edge function for ElevenLabs TTS
-- All prompts shaped server-side; client sends only topic + role + question
-
-## User Flow
-1. Land on intro page → click "Enter Story OS"
-2. Browse hot news cards on homepage → search or click a story
-3. Enter story intelligence mode → see AI briefing, switch roles, explore graph
-4. Ask follow-up questions in chat → hear audio → watch video summary
-5. Click "Simulate Update" → story evolves live
+## Files Changed
+1. `src/data/stories.ts` — add 8 briefings + role framings map
+2. `src/pages/StoryPage.tsx` — dynamic briefing lookup, role framings, smart chat, related stories
+3. `src/components/story/VideoPlayer.tsx` — background images with Ken Burns animation
 
