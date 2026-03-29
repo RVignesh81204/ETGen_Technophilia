@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft, Play, Pause, Volume2, Send, RefreshCw,
+  ArrowLeft, Play, Pause, Volume2, Send, RefreshCw, Zap,
   Users, TrendingUp, BookOpen, Mic, Video, MessageSquare,
   AlertTriangle, Eye, Clock, Target, Lightbulb, Shield
 } from 'lucide-react';
