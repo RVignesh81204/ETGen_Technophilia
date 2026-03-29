@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Play, Pause, Volume2, Send, RefreshCw, Zap,
@@ -7,7 +7,7 @@ import {
   AlertTriangle, Eye, Clock, Target, Lightbulb, Shield
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { demoStories, demoBriefing, type BriefingData } from '@/data/stories';
+import { demoStories, storyBriefings, roleFramings, type BriefingData } from '@/data/stories';
 import { useToast } from '@/hooks/use-toast';
 import EntityGraph from '@/components/story/EntityGraph';
 import VideoPlayer from '@/components/story/VideoPlayer';
@@ -21,14 +21,58 @@ const roles = [
   { id: 'analyst', label: 'Analyst', icon: Shield },
 ];
 
-const roleFraming: Record<string, string> = {
-  general: 'Here\'s a clear, accessible summary of the situation.',
-  investor: 'From an investment perspective: Oil and defense positions benefit from escalation. Energy-heavy portfolios should consider hedging with options. Key risk: rapid de-escalation would unwind gains.',
-  founder: 'For business leaders: Supply chain disruptions in energy-dependent sectors are likely. Consider diversifying suppliers and reviewing exposure to Middle East trade routes.',
-  student: 'Simply put: Iran is developing nuclear capabilities faster than agreed. Israel feels threatened. The US is trying to prevent a war that could spike oil prices globally.',
-  journalist: 'Key angles: Shuttle diplomacy timeline, Saudi-Israel cooperation significance, IAEA access denial precedent. Follow-up: What are the backchannels? Who benefits from escalation narrative?',
-  analyst: 'Strategic assessment: 15% probability of military conflict. Iran likely using enrichment as leverage for sanctions relief. Watch IAEA April 2 board meeting as key inflection point.',
-};
+/* ─── Smart Chat Response Generator ─── */
+function generateChatResponse(question: string, briefing: BriefingData, role: string, storyId: string): string {
+  const q = question.toLowerCase();
+  const rf = roleFramings[storyId]?.[role];
+
+  // Timeline questions
+  if (q.includes('timeline') || q.includes('when') || q.includes('chronolog') || q.includes('history') || q.includes('happened')) {
+    const tl = briefing.timeline.slice(-4).map(t => `**${t.date}**: ${t.event}`).join('\n');
+    return `Here's the recent timeline:\n\n${tl}\n\nKey developments are accelerating. ${briefing.futureOutlook.split('.')[0]}.`;
+  }
+
+  // Impact / affect questions
+  if (q.includes('impact') || q.includes('affect') || q.includes('consequence') || q.includes('mean for')) {
+    return `**Impact Analysis:**\n\n${rf?.impact || briefing.impactAnalysis}\n\n**Sentiment:** ${briefing.sentiment}`;
+  }
+
+  // Contrarian / hidden / alternative view
+  if (q.includes('contrarian') || q.includes('hidden') || q.includes('other side') || q.includes('alternative') || q.includes('disagree') || q.includes('opposite')) {
+    return `**Contrarian Perspective:**\n\n${briefing.contrarianView}`;
+  }
+
+  // Future / outlook / predict
+  if (q.includes('future') || q.includes('outlook') || q.includes('predict') || q.includes('next') || q.includes('expect') || q.includes('will')) {
+    const watchItems = briefing.watchNext.slice(0, 3).map(w => `• ${w}`).join('\n');
+    return `**Outlook:**\n\n${briefing.futureOutlook}\n\n**Key Things to Watch:**\n${watchItems}`;
+  }
+
+  // Entity / who / player questions
+  if (q.includes('who') || q.includes('player') || q.includes('entity') || q.includes('involved') || q.includes('key')) {
+    const entities = briefing.keyEntities.slice(0, 4).map(e => `• **${e.name}** (${e.type}): ${e.role}`).join('\n');
+    return `**Key Entities:**\n\n${entities}`;
+  }
+
+  // Facts / details
+  if (q.includes('fact') || q.includes('detail') || q.includes('data') || q.includes('number') || q.includes('statistic')) {
+    const facts = briefing.keyFacts.slice(0, 4).map(f => `• ${f}`).join('\n');
+    return `**Key Facts:**\n\n${facts}`;
+  }
+
+  // Risk / danger
+  if (q.includes('risk') || q.includes('danger') || q.includes('worry') || q.includes('concern') || q.includes('threat')) {
+    return `**Risk Assessment:**\n\n${rf?.impact || briefing.impactAnalysis}\n\n**Contrarian Take:** ${briefing.contrarianView.split('.')[0]}.`;
+  }
+
+  // Investment / portfolio / stock / buy
+  if (q.includes('invest') || q.includes('portfolio') || q.includes('stock') || q.includes('buy') || q.includes('sell') || q.includes('hedge') || q.includes('trade')) {
+    return `**${roles.find(r => r.id === role)?.label || 'General'} View on Investment Angle:**\n\n${rf?.impact || briefing.impactAnalysis}\n\n**Sentiment:** ${briefing.sentiment}\n\n*Note: This is AI-generated analysis, not financial advice.*`;
+  }
+
+  // Default intelligent response using role context
+  return `Based on the current situation regarding **"${briefing.title}"**, here's my ${role !== 'general' ? roles.find(r => r.id === role)?.label + ' ' : ''}analysis:\n\n${rf?.summary || briefing.summary}\n\n**Key Takeaway:** ${briefing.futureOutlook.split('.')[0]}.\n\n**What to Watch:**\n${briefing.watchNext.slice(0, 3).map(w => `• ${w}`).join('\n')}`;
+}
 
 const StoryPage = () => {
   const { id } = useParams();
@@ -36,7 +80,7 @@ const StoryPage = () => {
   const { toast } = useToast();
   const story = demoStories.find(s => s.id === id);
   const [role, setRole] = useState('general');
-  const [briefing, setBriefing] = useState<BriefingData>(demoBriefing);
+  const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -46,14 +90,39 @@ const StoryPage = () => {
   const audioIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  // Load briefing for the current story
+  useEffect(() => {
+    if (id && storyBriefings[id]) {
+      setBriefing(storyBriefings[id]);
+    }
+    // Reset chat on story change
+    setChatMessages([]);
+    setChatInput('');
+    setRole('general');
+    setAudioProgress(0);
+    setIsPlaying(false);
+    speechSynthesis.cancel();
+  }, [id]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  if (!story) {
+  if (!story || !id) {
     navigate('/home');
     return null;
   }
+
+  if (!briefing) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground font-sans">Loading briefing...</p>
+      </div>
+    );
+  }
+
+  const currentRoleFraming = roleFramings[id]?.[role];
+  const currentQuestions = currentRoleFraming?.questions || briefing.suggestedQuestions;
 
   const toggleAudio = () => {
     if (isPlaying) {
@@ -68,7 +137,7 @@ const StoryPage = () => {
     utteranceRef.current = utterance;
     setIsPlaying(true);
     setAudioProgress(0);
-    const totalDur = briefing.audioScript.length * 60; // rough ms estimate
+    const totalDur = briefing.audioScript.length * 60;
     const startTime = Date.now();
     audioIntervalRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -87,35 +156,49 @@ const StoryPage = () => {
     speechSynthesis.speak(utterance);
   };
 
-  const handleChat = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput.trim();
+  const sendMessage = (msg: string) => {
+    if (!msg.trim()) return;
+    const userMsg = msg.trim();
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setIsLoadingChat(true);
 
-    // Simulated AI response — will be replaced with real edge function
     setTimeout(() => {
-      const answers: Record<string, string> = {
-        default: `Based on the current situation regarding "${briefing.title}", here's my analysis:\n\n${briefing.contrarianView}\n\nKey factors to watch:\n${briefing.watchNext.slice(0, 3).map(w => `• ${w}`).join('\n')}`,
-      };
-      setChatMessages(prev => [...prev, { role: 'assistant', content: answers.default }]);
+      const response = generateChatResponse(userMsg, briefing, role, id);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: response }]);
       setIsLoadingChat(false);
-    }, 1500);
+    }, 800 + Math.random() * 1200);
   };
 
+  const handleChat = () => sendMessage(chatInput);
+
   const simulateUpdate = () => {
-    const newEvent = { date: 'Mar 29 (Update)', event: 'BREAKING: Iran agrees to limited IAEA inspection at Natanz facility under diplomatic pressure' };
-    setBriefing(prev => ({
+    const updates: Record<string, { date: string; event: string; sentiment: string }> = {
+      'iran-israel-usa': { date: 'Mar 29 (Update)', event: 'BREAKING: Iran agrees to limited IAEA inspection at Natanz facility under diplomatic pressure', sentiment: 'Cautiously improving. Markets may stabilize if inspections proceed.' },
+      'nvidia-earnings': { date: 'Mar 29 (Update)', event: 'BREAKING: NVIDIA announces $10B stock buyback program — largest in chip industry history', sentiment: 'Extremely bullish. Buyback signals management confidence in sustained growth.' },
+      'rbi-rate': { date: 'Mar 29 (Update)', event: 'BREAKING: Food inflation drops to 5.2% on vegetable price correction — rate cut odds increase', sentiment: 'Turning dovish. Bond rally expected as rate cut probability rises to 85%.' },
+      'openai-gpt5': { date: 'Mar 29 (Update)', event: 'BREAKING: Google announces Gemini 3 launch date — two weeks ahead of schedule', sentiment: 'Competition heating up. AI sector volatility increasing.' },
+      'tata-semiconductor': { date: 'Mar 29 (Update)', event: 'BREAKING: ASML confirms early delivery of EUV equipment to Dholera — 3 months ahead of schedule', sentiment: 'Positive momentum. Execution confidence improving.' },
+      'saudi-ipo': { date: 'Mar 29 (Update)', event: 'BREAKING: IPO final pricing set at 15% premium to initial range — massive institutional demand', sentiment: 'Extremely bullish. ESG demand exceeds expectations.' },
+      'ai-regulation-eu': { date: 'Mar 29 (Update)', event: 'BREAKING: First fine issued — unnamed AI company faces €1.2B penalty for non-compliance', sentiment: 'Regulatory teeth shown. AI stocks dip 3-5% across European markets.' },
+      'startup-unicorn': { date: 'Mar 29 (Update)', event: 'BREAKING: Zeptomail acquires German competitor Postmark for $200M — European expansion accelerates', sentiment: 'Bullish. Acquisition strengthens market position ahead of IPO.' },
+      'china-trade': { date: 'Mar 29 (Update)', event: 'BREAKING: US announces $15B emergency farm bailout package — bipartisan support in Congress', sentiment: 'Slightly positive. Bailout cushions immediate impact but structural issues remain.' },
+    };
+
+    const update = updates[id] || updates['iran-israel-usa'];
+    setBriefing(prev => prev ? ({
       ...prev,
-      timeline: [...prev.timeline, newEvent],
-      sentiment: 'Cautiously improving. Markets may stabilize if inspections proceed.',
-    }));
+      timeline: [...prev.timeline, { date: update.date, event: update.event }],
+      sentiment: update.sentiment,
+    }) : prev);
     toast({
       title: '⚡ Story Updated',
-      description: 'Breaking: Iran agrees to limited IAEA inspection at Natanz',
+      description: update.event.replace('BREAKING: ', ''),
     });
   };
+
+  // Related stories (excluding current, max 3)
+  const relatedStories = demoStories.filter(s => s.id !== id).slice(0, 3);
 
   return (
     <div className="min-h-screen bg-background grain">
@@ -174,7 +257,7 @@ const StoryPage = () => {
         {/* Role insight */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={role}
+            key={`${id}-${role}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
@@ -186,7 +269,9 @@ const StoryPage = () => {
                 {roles.find(r => r.id === role)?.label} Perspective
               </span>
             </div>
-            <p className="text-sm font-sans text-foreground/90 leading-relaxed">{roleFraming[role]}</p>
+            <p className="text-sm font-sans text-foreground/90 leading-relaxed">
+              {currentRoleFraming?.summary || briefing.summary}
+            </p>
           </motion.div>
         </AnimatePresence>
 
@@ -239,11 +324,11 @@ const StoryPage = () => {
                 </div>
               </div>
 
-              {/* Impact & Sentiment */}
+              {/* Impact & Sentiment — role-aware */}
               <div className="space-y-4">
                 <div className="glass rounded-xl p-5">
                   <h3 className="font-serif text-lg font-semibold mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-destructive" /> Impact Analysis</h3>
-                  <p className="text-sm font-sans text-foreground/85 leading-relaxed">{briefing.impactAnalysis}</p>
+                  <p className="text-sm font-sans text-foreground/85 leading-relaxed">{currentRoleFraming?.impact || briefing.impactAnalysis}</p>
                 </div>
                 <div className="glass rounded-xl p-5">
                   <h3 className="font-serif text-lg font-semibold mb-2 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" /> Sentiment</h3>
@@ -289,10 +374,10 @@ const StoryPage = () => {
                     <MessageSquare className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
                     <p className="text-muted-foreground text-sm font-sans mb-4">Ask anything about this story</p>
                     <div className="flex flex-wrap gap-2 justify-center">
-                      {briefing.suggestedQuestions.map((q, i) => (
+                      {currentQuestions.map((q, i) => (
                         <button
                           key={i}
-                          onClick={() => { setChatInput(q); }}
+                          onClick={() => sendMessage(q)}
                           className="px-3 py-1.5 rounded-lg bg-muted/50 border border-border/50 text-xs font-sans text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
                         >
                           {q}
@@ -308,7 +393,15 @@ const StoryPage = () => {
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted/50 text-foreground'
                     }`}>
-                      {msg.content.split('\n').map((line, j) => <p key={j} className={j > 0 ? 'mt-1' : ''}>{line}</p>)}
+                      {msg.content.split('\n').map((line, j) => (
+                        <p key={j} className={j > 0 ? 'mt-1' : ''}>
+                          {line.split(/(\*\*[^*]+\*\*)/).map((part, k) =>
+                            part.startsWith('**') && part.endsWith('**')
+                              ? <strong key={k} className="font-semibold">{part.slice(2, -2)}</strong>
+                              : part
+                          )}
+                        </p>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -323,6 +416,22 @@ const StoryPage = () => {
                 )}
                 <div ref={chatEndRef} />
               </div>
+
+              {/* Suggested questions after conversation */}
+              {chatMessages.length > 0 && (
+                <div className="border-t border-border/30 px-3 py-2 flex gap-1.5 overflow-x-auto">
+                  {currentQuestions.slice(0, 4).map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(q)}
+                      className="px-2 py-1 rounded bg-muted/30 border border-border/30 text-[10px] font-sans text-muted-foreground hover:text-foreground whitespace-nowrap transition-all"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="border-t border-border/50 p-3 flex gap-2">
                 <input
                   value={chatInput}
@@ -334,6 +443,28 @@ const StoryPage = () => {
                 <button onClick={handleChat} className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
                   <Send className="w-4 h-4" />
                 </button>
+              </div>
+            </div>
+
+            {/* Related Stories */}
+            <div className="mt-6">
+              <h3 className="font-serif text-lg font-semibold mb-3 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-primary" /> Related Stories
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {relatedStories.map(rs => (
+                  <Link
+                    key={rs.id}
+                    to={`/story/${rs.id}`}
+                    className="glass rounded-xl p-4 hover:border-primary/30 border border-transparent transition-all group"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-sans font-semibold uppercase bg-primary/10 text-primary">{rs.category}</span>
+                      <span className="text-muted-foreground text-[10px] font-sans">{rs.timestamp}</span>
+                    </div>
+                    <p className="text-sm font-serif font-semibold leading-snug group-hover:text-primary transition-colors line-clamp-2">{rs.headline}</p>
+                  </Link>
+                ))}
               </div>
             </div>
           </TabsContent>
