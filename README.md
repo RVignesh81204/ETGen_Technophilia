@@ -114,8 +114,7 @@ One story → One complete intelligence experience
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/your-username/et-story-os.git
-cd ET-Gen-AI
+git clone https://github.com/RVignesh81204/ETGen_Technophilia
 
 npm install
 npm run dev
